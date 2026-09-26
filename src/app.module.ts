@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { validateEnvironment } from './config/env.validation';
 import { UsersModule } from './users/users.module';
+import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { UsersModule } from './users/users.module';
 
     UsersModule,
     AuthModule,
+    ProductsModule,
   ],
   providers: [
     // Secure by default: every endpoint requires authentication unless @Public() is used.
