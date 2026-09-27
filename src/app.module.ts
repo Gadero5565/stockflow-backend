@@ -8,6 +8,7 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { validateEnvironment } from './config/env.validation';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
+import { WarehousesModule } from './warehouses/warehouses.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { ProductsModule } from './products/products.module';
     UsersModule,
     AuthModule,
     ProductsModule,
+    WarehousesModule,
   ],
   providers: [
     // Secure by default: every endpoint requires authentication unless @Public() is used.
