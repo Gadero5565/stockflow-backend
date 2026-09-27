@@ -9,6 +9,7 @@ import { validateEnvironment } from './config/env.validation';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
+import { LocationsModule } from './locations/locations.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { WarehousesModule } from './warehouses/warehouses.module';
     AuthModule,
     ProductsModule,
     WarehousesModule,
+    LocationsModule
   ],
   providers: [
     // Secure by default: every endpoint requires authentication unless @Public() is used.
@@ -54,4 +56,4 @@ import { WarehousesModule } from './warehouses/warehouses.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule { }
