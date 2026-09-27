@@ -10,6 +10,7 @@ import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
 import { LocationsModule } from './locations/locations.module';
+import { InventoryModule } from './inventory/inventory.module';
 
 @Module({
   imports: [
@@ -42,7 +43,8 @@ import { LocationsModule } from './locations/locations.module';
     AuthModule,
     ProductsModule,
     WarehousesModule,
-    LocationsModule
+    LocationsModule,
+    InventoryModule
   ],
   providers: [
     // Secure by default: every endpoint requires authentication unless @Public() is used.
