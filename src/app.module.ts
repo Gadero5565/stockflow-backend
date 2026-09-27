@@ -12,6 +12,7 @@ import { WarehousesModule } from './warehouses/warehouses.module';
 import { LocationsModule } from './locations/locations.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { TransfersModule } from './transfers/transfers.module';
+import { StockMovementsModule } from './stock-movements/stock-movements.module';
 
 @Module({
   imports: [
@@ -46,7 +47,8 @@ import { TransfersModule } from './transfers/transfers.module';
     WarehousesModule,
     LocationsModule,
     InventoryModule,
-    TransfersModule
+    TransfersModule,
+    StockMovementsModule
   ],
   providers: [
     // Secure by default: every endpoint requires authentication unless @Public() is used.

@@ -12,6 +12,7 @@ import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.
 import { Inventory } from '../inventory/entities/inventory.entity';
 import { LocationsService } from '../locations/locations.service';
 import { ProductsService } from '../products/products.service';
+import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import { UsersService } from '../users/users.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { TransferQueryDto } from './dto/transfer-query.dto';
@@ -31,6 +32,7 @@ export class TransfersService {
     private readonly locationsService: LocationsService,
     private readonly productsService: ProductsService,
     private readonly usersService: UsersService,
+    private readonly stockMovementsService: StockMovementsService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -182,9 +184,7 @@ export class TransfersService {
     currentUser: AuthenticatedUser,
   ): Promise<Transfer> {
     const transfer = await this.findEntityWithRelations(id);
-
     this.ensureCanAccessTransfer(transfer, currentUser);
-
     return transfer;
   }
 
@@ -206,7 +206,6 @@ export class TransfersService {
     transfer.readyAt = new Date();
 
     await this.transferRepository.save(transfer);
-
     return this.findOne(id, currentUser);
   }
 
@@ -228,7 +227,6 @@ export class TransfersService {
     transfer.startedAt = new Date();
 
     await this.transferRepository.save(transfer);
-
     return this.findOne(id, currentUser);
   }
 
@@ -311,6 +309,15 @@ export class TransfersService {
         await inventoryRepository.save(sourceInventory);
         await inventoryRepository.save(destinationInventory);
         await lineRepository.save(line);
+
+        await this.stockMovementsService.recordTransfer(manager, {
+          productId: line.productId,
+          sourceLocationId: transfer.sourceLocationId,
+          destinationLocationId: transfer.destinationLocationId,
+          quantity: line.quantity,
+          transferId: transfer.id,
+          createdById: currentUser.id,
+        });
       }
 
       transfer.status = TransferStatus.DONE;
@@ -341,7 +348,6 @@ export class TransfersService {
     transfer.cancelledAt = new Date();
 
     await this.transferRepository.save(transfer);
-
     return this.findOne(id, currentUser);
   }
 
@@ -349,17 +355,11 @@ export class TransfersService {
     const transfer = await this.transferRepository.findOne({
       where: { id },
       relations: {
-        sourceLocation: {
-          warehouse: true,
-        },
-        destinationLocation: {
-          warehouse: true,
-        },
+        sourceLocation: { warehouse: true },
+        destinationLocation: { warehouse: true },
         assignedUser: true,
         createdBy: true,
-        lines: {
-          product: true,
-        },
+        lines: { product: true },
       },
     });
 
@@ -419,9 +419,7 @@ export class TransfersService {
       return;
     }
 
-    throw new ForbiddenException(
-      'You cannot process this transfer',
-    );
+    throw new ForbiddenException('You cannot process this transfer');
   }
 
   private ensureNoDuplicateProducts(dto: CreateTransferDto): void {

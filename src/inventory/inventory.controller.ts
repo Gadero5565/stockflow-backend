@@ -7,8 +7,10 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { AdjustInventoryDto } from './dto/adjust-inventory.dto';
 import { InventoryQueryDto } from './dto/inventory-query.dto';
 import { InventoryService } from './inventory.service';
@@ -29,7 +31,10 @@ export class InventoryController {
 
   @Post('adjust')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_MANAGER)
-  adjust(@Body() dto: AdjustInventoryDto) {
-    return this.inventoryService.adjust(dto);
+  adjust(
+    @Body() dto: AdjustInventoryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.adjust(dto, user);
   }
 }

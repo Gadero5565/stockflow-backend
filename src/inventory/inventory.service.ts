@@ -5,8 +5,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { LocationsService } from '../locations/locations.service';
 import { ProductsService } from '../products/products.service';
+import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import { AdjustInventoryDto } from './dto/adjust-inventory.dto';
 import { InventoryQueryDto } from './dto/inventory-query.dto';
 import { Inventory } from './entities/inventory.entity';
@@ -18,6 +20,7 @@ export class InventoryService {
     private readonly inventoryRepository: Repository<Inventory>,
     private readonly productsService: ProductsService,
     private readonly locationsService: LocationsService,
+    private readonly stockMovementsService: StockMovementsService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -99,7 +102,10 @@ export class InventoryService {
     return inventory;
   }
 
-  async adjust(dto: AdjustInventoryDto): Promise<Inventory> {
+  async adjust(
+    dto: AdjustInventoryDto,
+    currentUser: AuthenticatedUser,
+  ): Promise<Inventory> {
     await this.productsService.findOne(dto.productId);
     await this.locationsService.findOne(dto.locationId);
 
@@ -142,6 +148,15 @@ export class InventoryService {
         }
 
         const saved = await repository.save(inventory);
+
+        await this.stockMovementsService.recordAdjustment(manager, {
+          productId: dto.productId,
+          locationId: dto.locationId,
+          quantityDelta: dto.quantityDelta,
+          createdById: currentUser.id,
+          reason: dto.reason,
+        });
+
         return saved.id;
       },
     );
