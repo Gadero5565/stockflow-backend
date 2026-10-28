@@ -5,7 +5,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { createHash, timingSafeEqual } from 'crypto';
+import {
+  createHash,
+  randomUUID,
+  timingSafeEqual,
+} from 'crypto';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { User } from '../users/entities/user.entity';
@@ -112,6 +116,12 @@ export class AuthService {
     const refreshPayload: JwtPayload = {
       sub: userId,
       type: 'refresh',
+
+      // Without a unique claim, two refresh tokens issued in the same
+      // second have identical sub/type/iat/exp values and therefore
+      // serialize to the exact same JWT. That breaks rotation because
+      // the newly stored hash is still the hash of the previous token.
+      jti: randomUUID(),
     };
 
     const [accessToken, refreshToken] = await Promise.all([
