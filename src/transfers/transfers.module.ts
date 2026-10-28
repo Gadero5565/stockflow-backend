@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Inventory } from '../inventory/entities/inventory.entity';
 import { LocationsModule } from '../locations/locations.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ProductsModule } from '../products/products.module';
 import { StockMovementsModule } from '../stock-movements/stock-movements.module';
 import { UsersModule } from '../users/users.module';
@@ -20,6 +21,7 @@ import { TransfersService } from './transfers.service';
     LocationsModule,
     ProductsModule,
     UsersModule,
+    NotificationsModule,
     StockMovementsModule,
   ],
   controllers: [TransfersController],

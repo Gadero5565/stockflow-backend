@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -8,6 +9,10 @@ import {
 } from 'typeorm';
 
 @Entity('products')
+@Check(
+  'CHK_products_reorderLevel_nonnegative',
+  '"reorderLevel" >= 0',
+)
 export class Product {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -34,6 +39,9 @@ export class Product {
 
   @Column({ length: 32, default: 'unit' })
   unit: string;
+
+  @Column({ type: 'integer', default: 0 })
+  reorderLevel: number;
 
   @Index()
   @Column({ default: true })

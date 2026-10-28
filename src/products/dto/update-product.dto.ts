@@ -1,9 +1,11 @@
 import {
   IsBoolean,
+  IsInt,
   IsOptional,
   IsString,
   Length,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 export class UpdateProductDto {
@@ -31,6 +33,11 @@ export class UpdateProductDto {
   @IsString()
   @Length(1, 32)
   unit?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  reorderLevel?: number;
 
   @IsOptional()
   @IsBoolean()

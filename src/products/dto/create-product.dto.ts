@@ -1,8 +1,10 @@
 import {
+  IsInt,
   IsOptional,
   IsString,
   Length,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 export class CreateProductDto {
@@ -28,4 +30,9 @@ export class CreateProductDto {
   @IsString()
   @Length(1, 32)
   unit?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  reorderLevel?: number;
 }

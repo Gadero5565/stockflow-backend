@@ -11,6 +11,8 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { Inventory } from '../inventory/entities/inventory.entity';
 import { LocationsService } from '../locations/locations.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ProductsService } from '../products/products.service';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import { UsersService } from '../users/users.service';
@@ -32,6 +34,7 @@ export class TransfersService {
     private readonly locationsService: LocationsService,
     private readonly productsService: ProductsService,
     private readonly usersService: UsersService,
+    private readonly notificationsService: NotificationsService,
     private readonly stockMovementsService: StockMovementsService,
     private readonly dataSource: DataSource,
   ) {}
@@ -51,7 +54,9 @@ export class TransfersService {
       this.locationsService.findOne(dto.destinationLocationId),
     ]);
 
-    const assignedUser = await this.usersService.findById(dto.assignedUserId);
+    const assignedUser = await this.usersService.findById(
+      dto.assignedUserId,
+    );
 
     if (!assignedUser.isActive) {
       throw new BadRequestException('Assigned user is inactive');
@@ -66,44 +71,83 @@ export class TransfersService {
     this.ensureNoDuplicateProducts(dto);
 
     await Promise.all(
-      dto.lines.map((line) => this.productsService.findOne(line.productId)),
+      dto.lines.map((line) =>
+        this.productsService.findOne(line.productId),
+      ),
     );
 
-    const transferId = await this.dataSource.transaction(async (manager) => {
-      const transferRepository = manager.getRepository(Transfer);
-      const lineRepository = manager.getRepository(TransferLine);
+    const transferId =
+      await this.dataSource.transaction(
+        async (manager) => {
+          const transferRepository =
+            manager.getRepository(Transfer);
+          const lineRepository =
+            manager.getRepository(TransferLine);
 
-      const transfer = transferRepository.create({
-        reference: this.generateReference(),
-        sourceLocationId: dto.sourceLocationId,
-        destinationLocationId: dto.destinationLocationId,
-        assignedUserId: dto.assignedUserId,
-        createdById: currentUser.id,
-        status: TransferStatus.DRAFT,
-        notes: this.normalizeOptional(dto.notes),
-        readyAt: null,
-        startedAt: null,
-        completedAt: null,
-        cancelledAt: null,
-      });
+          const transfer =
+            transferRepository.create({
+              reference: this.generateReference(),
+              sourceLocationId:
+                dto.sourceLocationId,
+              destinationLocationId:
+                dto.destinationLocationId,
+              assignedUserId:
+                dto.assignedUserId,
+              createdById: currentUser.id,
+              status: TransferStatus.DRAFT,
+              notes: this.normalizeOptional(
+                dto.notes,
+              ),
+              readyAt: null,
+              startedAt: null,
+              completedAt: null,
+              cancelledAt: null,
+            });
 
-      const savedTransfer = await transferRepository.save(transfer);
+          const savedTransfer =
+            await transferRepository.save(
+              transfer,
+            );
 
-      const lines = dto.lines.map((line) =>
-        lineRepository.create({
-          transferId: savedTransfer.id,
-          productId: line.productId,
-          quantity: line.quantity,
-          processedQuantity: 0,
-        }),
+          const lines = dto.lines.map(
+            (line) =>
+              lineRepository.create({
+                transferId:
+                  savedTransfer.id,
+                productId:
+                  line.productId,
+                quantity:
+                  line.quantity,
+                processedQuantity: 0,
+              }),
+          );
+
+          await lineRepository.save(lines);
+
+          return savedTransfer.id;
+        },
       );
 
-      await lineRepository.save(lines);
+    const created =
+      await this.findOne(
+        transferId,
+        currentUser,
+      );
 
-      return savedTransfer.id;
-    });
+    await this.notificationsService.notifyUser(
+      created.assignedUserId,
+      {
+        type:
+          NotificationType.TRANSFER_ASSIGNED,
+        title: 'Transfer assigned',
+        message:
+          `${created.reference} was assigned to you.`,
+        resourceType: 'transfer',
+        resourceId: created.id,
+      },
+    );
 
-    return this.findOne(transferId, currentUser);
+    return created;
   }
 
   async findAll(
@@ -112,8 +156,14 @@ export class TransfersService {
   ): Promise<Transfer[]> {
     const qb = this.transferRepository
       .createQueryBuilder('transfer')
-      .leftJoinAndSelect('transfer.sourceLocation', 'sourceLocation')
-      .leftJoinAndSelect('sourceLocation.warehouse', 'sourceWarehouse')
+      .leftJoinAndSelect(
+        'transfer.sourceLocation',
+        'sourceLocation',
+      )
+      .leftJoinAndSelect(
+        'sourceLocation.warehouse',
+        'sourceWarehouse',
+      )
       .leftJoinAndSelect(
         'transfer.destinationLocation',
         'destinationLocation',
@@ -122,44 +172,83 @@ export class TransfersService {
         'destinationLocation.warehouse',
         'destinationWarehouse',
       )
-      .leftJoinAndSelect('transfer.assignedUser', 'assignedUser')
-      .leftJoinAndSelect('transfer.createdBy', 'createdBy')
-      .leftJoinAndSelect('transfer.lines', 'line')
-      .leftJoinAndSelect('line.product', 'product')
-      .orderBy('transfer.createdAt', 'DESC');
+      .leftJoinAndSelect(
+        'transfer.assignedUser',
+        'assignedUser',
+      )
+      .leftJoinAndSelect(
+        'transfer.createdBy',
+        'createdBy',
+      )
+      .leftJoinAndSelect(
+        'transfer.lines',
+        'line',
+      )
+      .leftJoinAndSelect(
+        'line.product',
+        'product',
+      )
+      .orderBy(
+        'transfer.createdAt',
+        'DESC',
+      );
 
-    if (currentUser.role === UserRole.WAREHOUSE_WORKER) {
-      qb.andWhere('transfer.assignedUserId = :currentUserId', {
-        currentUserId: currentUser.id,
-      });
-    } else if (query.assignedUserId) {
-      qb.andWhere('transfer.assignedUserId = :assignedUserId', {
-        assignedUserId: query.assignedUserId,
-      });
-    }
-
-    if (query.status) {
-      qb.andWhere('transfer.status = :status', {
-        status: query.status,
-      });
-    }
-
-    if (query.sourceLocationId) {
-      qb.andWhere('transfer.sourceLocationId = :sourceLocationId', {
-        sourceLocationId: query.sourceLocationId,
-      });
-    }
-
-    if (query.destinationLocationId) {
+    if (
+      currentUser.role ===
+      UserRole.WAREHOUSE_WORKER
+    ) {
       qb.andWhere(
-        'transfer.destinationLocationId = :destinationLocationId',
+        'transfer.assignedUserId = :currentUserId',
         {
-          destinationLocationId: query.destinationLocationId,
+          currentUserId:
+            currentUser.id,
+        },
+      );
+    } else if (
+      query.assignedUserId
+    ) {
+      qb.andWhere(
+        'transfer.assignedUserId = :assignedUserId',
+        {
+          assignedUserId:
+            query.assignedUserId,
         },
       );
     }
 
-    const search = query.search?.trim();
+    if (query.status) {
+      qb.andWhere(
+        'transfer.status = :status',
+        {
+          status: query.status,
+        },
+      );
+    }
+
+    if (query.sourceLocationId) {
+      qb.andWhere(
+        'transfer.sourceLocationId = :sourceLocationId',
+        {
+          sourceLocationId:
+            query.sourceLocationId,
+        },
+      );
+    }
+
+    if (
+      query.destinationLocationId
+    ) {
+      qb.andWhere(
+        'transfer.destinationLocationId = :destinationLocationId',
+        {
+          destinationLocationId:
+            query.destinationLocationId,
+        },
+      );
+    }
+
+    const search =
+      query.search?.trim();
 
     if (search) {
       qb.andWhere(
@@ -183,8 +272,16 @@ export class TransfersService {
     id: string,
     currentUser: AuthenticatedUser,
   ): Promise<Transfer> {
-    const transfer = await this.findEntityWithRelations(id);
-    this.ensureCanAccessTransfer(transfer, currentUser);
+    const transfer =
+      await this.findEntityWithRelations(
+        id,
+      );
+
+    this.ensureCanAccessTransfer(
+      transfer,
+      currentUser,
+    );
+
     return transfer;
   }
 
@@ -192,194 +289,413 @@ export class TransfersService {
     id: string,
     currentUser: AuthenticatedUser,
   ): Promise<Transfer> {
-    const transfer = await this.findEntityWithRelations(id);
+    const transfer =
+      await this.findEntityWithRelations(
+        id,
+      );
 
-    if (transfer.status !== TransferStatus.DRAFT) {
+    if (
+      transfer.status !==
+      TransferStatus.DRAFT
+    ) {
       throw new BadRequestException(
         'Only draft transfers can be marked as ready',
       );
     }
 
-    await this.ensureStockAvailable(transfer);
+    await this.ensureStockAvailable(
+      transfer,
+    );
 
-    transfer.status = TransferStatus.READY;
+    transfer.status =
+      TransferStatus.READY;
     transfer.readyAt = new Date();
 
-    await this.transferRepository.save(transfer);
-    return this.findOne(id, currentUser);
+    await this.transferRepository.save(
+      transfer,
+    );
+
+    await this.notificationsService.notifyUser(
+      transfer.assignedUserId,
+      {
+        type:
+          NotificationType.TRANSFER_READY,
+        title: 'Transfer ready',
+        message:
+          `${transfer.reference} is ready to start.`,
+        resourceType: 'transfer',
+        resourceId: transfer.id,
+      },
+    );
+
+    return this.findOne(
+      id,
+      currentUser,
+    );
   }
 
   async start(
     id: string,
     currentUser: AuthenticatedUser,
   ): Promise<Transfer> {
-    const transfer = await this.findEntityWithRelations(id);
+    const transfer =
+      await this.findEntityWithRelations(
+        id,
+      );
 
-    this.ensureCanProcessTransfer(transfer, currentUser);
+    this.ensureCanProcessTransfer(
+      transfer,
+      currentUser,
+    );
 
-    if (transfer.status !== TransferStatus.READY) {
+    if (
+      transfer.status !==
+      TransferStatus.READY
+    ) {
       throw new BadRequestException(
         'Only ready transfers can be started',
       );
     }
 
-    transfer.status = TransferStatus.IN_PROGRESS;
+    transfer.status =
+      TransferStatus.IN_PROGRESS;
     transfer.startedAt = new Date();
 
-    await this.transferRepository.save(transfer);
-    return this.findOne(id, currentUser);
+    await this.transferRepository.save(
+      transfer,
+    );
+
+    await this.notificationsService
+      .notifyRoles(
+        [
+          UserRole.ADMIN,
+          UserRole.WAREHOUSE_MANAGER,
+        ],
+        {
+          type:
+            NotificationType.TRANSFER_STARTED,
+          title: 'Transfer started',
+          message:
+            `${transfer.reference} is now in progress.`,
+          resourceType: 'transfer',
+          resourceId: transfer.id,
+        },
+        {
+          excludeUserIds: [
+            currentUser.id,
+          ],
+        },
+      );
+
+    return this.findOne(
+      id,
+      currentUser,
+    );
   }
 
   async complete(
     id: string,
     currentUser: AuthenticatedUser,
   ): Promise<Transfer> {
-    const accessTransfer = await this.findEntityWithRelations(id);
-    this.ensureCanProcessTransfer(accessTransfer, currentUser);
+    const accessTransfer =
+      await this.findEntityWithRelations(
+        id,
+      );
 
-    await this.dataSource.transaction(async (manager) => {
-      const transferRepository = manager.getRepository(Transfer);
-      const lineRepository = manager.getRepository(TransferLine);
-      const inventoryRepository = manager.getRepository(Inventory);
+    this.ensureCanProcessTransfer(
+      accessTransfer,
+      currentUser,
+    );
 
-      const transfer = await transferRepository.findOne({
-        where: { id },
-        lock: { mode: 'pessimistic_write' },
-      });
+    await this.dataSource.transaction(
+      async (manager) => {
+        const transferRepository =
+          manager.getRepository(Transfer);
+        const lineRepository =
+          manager.getRepository(TransferLine);
+        const inventoryRepository =
+          manager.getRepository(Inventory);
 
-      if (!transfer) {
-        throw new NotFoundException('Transfer not found');
-      }
+        const transfer =
+          await transferRepository.findOne({
+            where: { id },
+            lock: {
+              mode:
+                'pessimistic_write',
+            },
+          });
 
-      if (transfer.status !== TransferStatus.IN_PROGRESS) {
-        throw new BadRequestException(
-          'Only transfers in progress can be completed',
-        );
-      }
-
-      const lines = await lineRepository.find({
-        where: { transferId: id },
-        order: { productId: 'ASC' },
-      });
-
-      if (lines.length === 0) {
-        throw new BadRequestException('Transfer has no lines');
-      }
-
-      for (const line of lines) {
-        const sourceInventory = await inventoryRepository.findOne({
-          where: {
-            productId: line.productId,
-            locationId: transfer.sourceLocationId,
-          },
-          lock: { mode: 'pessimistic_write' },
-        });
-
-        if (
-          !sourceInventory ||
-          sourceInventory.quantity < line.quantity
-        ) {
-          throw new BadRequestException(
-            `Insufficient stock for product ${line.productId}`,
+        if (!transfer) {
+          throw new NotFoundException(
+            'Transfer not found',
           );
         }
 
-        let destinationInventory = await inventoryRepository.findOne({
-          where: {
-            productId: line.productId,
-            locationId: transfer.destinationLocationId,
-          },
-          lock: { mode: 'pessimistic_write' },
-        });
-
-        sourceInventory.quantity -= line.quantity;
-
-        if (!destinationInventory) {
-          destinationInventory = inventoryRepository.create({
-            productId: line.productId,
-            locationId: transfer.destinationLocationId,
-            quantity: line.quantity,
-          });
-        } else {
-          destinationInventory.quantity += line.quantity;
+        if (
+          transfer.status !==
+          TransferStatus.IN_PROGRESS
+        ) {
+          throw new BadRequestException(
+            'Only transfers in progress can be completed',
+          );
         }
 
-        line.processedQuantity = line.quantity;
+        const lines =
+          await lineRepository.find({
+            where: {
+              transferId: id,
+            },
+            order: {
+              productId: 'ASC',
+            },
+          });
 
-        await inventoryRepository.save(sourceInventory);
-        await inventoryRepository.save(destinationInventory);
-        await lineRepository.save(line);
+        if (lines.length === 0) {
+          throw new BadRequestException(
+            'Transfer has no lines',
+          );
+        }
 
-        await this.stockMovementsService.recordTransfer(manager, {
-          productId: line.productId,
-          sourceLocationId: transfer.sourceLocationId,
-          destinationLocationId: transfer.destinationLocationId,
-          quantity: line.quantity,
-          transferId: transfer.id,
-          createdById: currentUser.id,
-        });
-      }
+        for (const line of lines) {
+          const sourceInventory =
+            await inventoryRepository
+              .findOne({
+                where: {
+                  productId:
+                    line.productId,
+                  locationId:
+                    transfer.sourceLocationId,
+                },
+                lock: {
+                  mode:
+                    'pessimistic_write',
+                },
+              });
 
-      transfer.status = TransferStatus.DONE;
-      transfer.completedAt = new Date();
+          if (
+            !sourceInventory ||
+            sourceInventory.quantity <
+              line.quantity
+          ) {
+            throw new BadRequestException(
+              `Insufficient stock for product ${line.productId}`,
+            );
+          }
 
-      await transferRepository.save(transfer);
-    });
+          let destinationInventory =
+            await inventoryRepository
+              .findOne({
+                where: {
+                  productId:
+                    line.productId,
+                  locationId:
+                    transfer.destinationLocationId,
+                },
+                lock: {
+                  mode:
+                    'pessimistic_write',
+                },
+              });
 
-    return this.findOne(id, currentUser);
+          sourceInventory.quantity -=
+            line.quantity;
+
+          if (!destinationInventory) {
+            destinationInventory =
+              inventoryRepository.create({
+                productId:
+                  line.productId,
+                locationId:
+                  transfer.destinationLocationId,
+                quantity:
+                  line.quantity,
+              });
+          } else {
+            destinationInventory.quantity +=
+              line.quantity;
+          }
+
+          line.processedQuantity =
+            line.quantity;
+
+          await inventoryRepository.save(
+            sourceInventory,
+          );
+          await inventoryRepository.save(
+            destinationInventory,
+          );
+          await lineRepository.save(line);
+
+          await this.stockMovementsService
+            .recordTransfer(manager, {
+              productId:
+                line.productId,
+              sourceLocationId:
+                transfer.sourceLocationId,
+              destinationLocationId:
+                transfer.destinationLocationId,
+              quantity:
+                line.quantity,
+              transferId:
+                transfer.id,
+              createdById:
+                currentUser.id,
+            });
+        }
+
+        transfer.status =
+          TransferStatus.DONE;
+        transfer.completedAt =
+          new Date();
+
+        await transferRepository.save(
+          transfer,
+        );
+      },
+    );
+
+    const completed =
+      await this.findOne(
+        id,
+        currentUser,
+      );
+
+    await this.notificationsService
+      .notifyRoles(
+        [
+          UserRole.ADMIN,
+          UserRole.WAREHOUSE_MANAGER,
+        ],
+        {
+          type:
+            NotificationType.TRANSFER_COMPLETED,
+          title:
+            'Transfer completed',
+          message:
+            `${completed.reference} was completed.`,
+          resourceType: 'transfer',
+          resourceId: completed.id,
+        },
+        {
+          excludeUserIds: [
+            currentUser.id,
+          ],
+        },
+      );
+
+    if (
+      completed.assignedUserId !==
+      currentUser.id
+    ) {
+      await this.notificationsService
+        .notifyUser(
+          completed.assignedUserId,
+          {
+            type:
+              NotificationType.TRANSFER_COMPLETED,
+            title:
+              'Transfer completed',
+            message:
+              `${completed.reference} was completed.`,
+            resourceType:
+              'transfer',
+            resourceId:
+              completed.id,
+          },
+        );
+    }
+
+    return completed;
   }
 
   async cancel(
     id: string,
     currentUser: AuthenticatedUser,
   ): Promise<Transfer> {
-    const transfer = await this.findEntityWithRelations(id);
+    const transfer =
+      await this.findEntityWithRelations(
+        id,
+      );
 
     if (
-      transfer.status === TransferStatus.DONE ||
-      transfer.status === TransferStatus.CANCELLED
+      transfer.status ===
+        TransferStatus.DONE ||
+      transfer.status ===
+        TransferStatus.CANCELLED
     ) {
       throw new BadRequestException(
         'Completed or cancelled transfers cannot be cancelled',
       );
     }
 
-    transfer.status = TransferStatus.CANCELLED;
-    transfer.cancelledAt = new Date();
+    transfer.status =
+      TransferStatus.CANCELLED;
+    transfer.cancelledAt =
+      new Date();
 
-    await this.transferRepository.save(transfer);
-    return this.findOne(id, currentUser);
+    await this.transferRepository.save(
+      transfer,
+    );
+
+    return this.findOne(
+      id,
+      currentUser,
+    );
   }
 
-  private async findEntityWithRelations(id: string): Promise<Transfer> {
-    const transfer = await this.transferRepository.findOne({
-      where: { id },
-      relations: {
-        sourceLocation: { warehouse: true },
-        destinationLocation: { warehouse: true },
-        assignedUser: true,
-        createdBy: true,
-        lines: { product: true },
-      },
-    });
+  private async findEntityWithRelations(
+    id: string,
+  ): Promise<Transfer> {
+    const transfer =
+      await this.transferRepository
+        .findOne({
+          where: { id },
+          relations: {
+            sourceLocation: {
+              warehouse: true,
+            },
+            destinationLocation: {
+              warehouse: true,
+            },
+            assignedUser: true,
+            createdBy: true,
+            lines: {
+              product: true,
+            },
+          },
+        });
 
     if (!transfer) {
-      throw new NotFoundException('Transfer not found');
+      throw new NotFoundException(
+        'Transfer not found',
+      );
     }
 
     return transfer;
   }
 
-  private async ensureStockAvailable(transfer: Transfer): Promise<void> {
-    for (const line of transfer.lines) {
-      const inventory = await this.inventoryRepository.findOne({
-        where: {
-          productId: line.productId,
-          locationId: transfer.sourceLocationId,
-        },
-      });
+  private async ensureStockAvailable(
+    transfer: Transfer,
+  ): Promise<void> {
+    for (
+      const line of transfer.lines
+    ) {
+      const inventory =
+        await this.inventoryRepository
+          .findOne({
+            where: {
+              productId:
+                line.productId,
+              locationId:
+                transfer.sourceLocationId,
+            },
+          });
 
-      if (!inventory || inventory.quantity < line.quantity) {
+      if (
+        !inventory ||
+        inventory.quantity <
+          line.quantity
+      ) {
         throw new BadRequestException(
           `Insufficient stock for ${line.product.name}. Required: ${line.quantity}, available: ${inventory?.quantity ?? 0}`,
         );
@@ -392,8 +708,10 @@ export class TransfersService {
     currentUser: AuthenticatedUser,
   ): void {
     if (
-      currentUser.role === UserRole.WAREHOUSE_WORKER &&
-      transfer.assignedUserId !== currentUser.id
+      currentUser.role ===
+        UserRole.WAREHOUSE_WORKER &&
+      transfer.assignedUserId !==
+        currentUser.id
     ) {
       throw new ForbiddenException(
         'You can only access transfers assigned to you',
@@ -406,26 +724,40 @@ export class TransfersService {
     currentUser: AuthenticatedUser,
   ): void {
     if (
-      currentUser.role === UserRole.ADMIN ||
-      currentUser.role === UserRole.WAREHOUSE_MANAGER
+      currentUser.role ===
+        UserRole.ADMIN ||
+      currentUser.role ===
+        UserRole.WAREHOUSE_MANAGER
     ) {
       return;
     }
 
     if (
-      currentUser.role === UserRole.WAREHOUSE_WORKER &&
-      transfer.assignedUserId === currentUser.id
+      currentUser.role ===
+        UserRole.WAREHOUSE_WORKER &&
+      transfer.assignedUserId ===
+        currentUser.id
     ) {
       return;
     }
 
-    throw new ForbiddenException('You cannot process this transfer');
+    throw new ForbiddenException(
+      'You cannot process this transfer',
+    );
   }
 
-  private ensureNoDuplicateProducts(dto: CreateTransferDto): void {
-    const productIds = dto.lines.map((line) => line.productId);
+  private ensureNoDuplicateProducts(
+    dto: CreateTransferDto,
+  ): void {
+    const productIds =
+      dto.lines.map(
+        (line) => line.productId,
+      );
 
-    if (new Set(productIds).size !== productIds.length) {
+    if (
+      new Set(productIds).size !==
+      productIds.length
+    ) {
       throw new BadRequestException(
         'A product can only appear once in a transfer',
       );
@@ -441,8 +773,14 @@ export class TransfersService {
     return `TRF-${suffix}`;
   }
 
-  private normalizeOptional(value?: string): string | null {
-    const normalized = value?.trim();
-    return normalized ? normalized : null;
+  private normalizeOptional(
+    value?: string,
+  ): string | null {
+    const normalized =
+      value?.trim();
+
+    return normalized
+      ? normalized
+      : null;
   }
 }

@@ -6,13 +6,14 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { validateEnvironment } from './config/env.validation';
-import { UsersModule } from './users/users.module';
-import { ProductsModule } from './products/products.module';
-import { WarehousesModule } from './warehouses/warehouses.module';
-import { LocationsModule } from './locations/locations.module';
 import { InventoryModule } from './inventory/inventory.module';
-import { TransfersModule } from './transfers/transfers.module';
+import { LocationsModule } from './locations/locations.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { ProductsModule } from './products/products.module';
 import { StockMovementsModule } from './stock-movements/stock-movements.module';
+import { TransfersModule } from './transfers/transfers.module';
+import { UsersModule } from './users/users.module';
+import { WarehousesModule } from './warehouses/warehouses.module';
 
 @Module({
   imports: [
@@ -32,12 +33,13 @@ import { StockMovementsModule } from './stock-movements/stock-movements.module';
         database: configService.getOrThrow<string>('DB_NAME'),
         autoLoadEntities: true,
 
-        // Convenient for local training only. Use migrations before production.
         synchronize:
-          configService.get<string>('NODE_ENV', 'development') === 'development',
+          configService.get<string>('NODE_ENV', 'development') ===
+          'development',
 
         logging:
-          configService.get<string>('NODE_ENV', 'development') === 'development',
+          configService.get<string>('NODE_ENV', 'development') ===
+          'development',
       }),
     }),
 
@@ -46,12 +48,12 @@ import { StockMovementsModule } from './stock-movements/stock-movements.module';
     ProductsModule,
     WarehousesModule,
     LocationsModule,
+    NotificationsModule,
     InventoryModule,
     TransfersModule,
-    StockMovementsModule
+    StockMovementsModule,
   ],
   providers: [
-    // Secure by default: every endpoint requires authentication unless @Public() is used.
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
@@ -62,4 +64,4 @@ import { StockMovementsModule } from './stock-movements/stock-movements.module';
     },
   ],
 })
-export class AppModule { }
+export class AppModule {}

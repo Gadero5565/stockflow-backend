@@ -17,24 +17,39 @@ import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+  ) {}
 
   @Get()
   findAll(@Query() query: InventoryQueryDto) {
     return this.inventoryService.findAll(query);
   }
 
+  @Get('health')
+  getHealth() {
+    return this.inventoryService.getHealth();
+  }
+
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.inventoryService.findOne(id);
   }
 
   @Post('adjust')
-  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_MANAGER)
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.WAREHOUSE_MANAGER,
+  )
   adjust(
     @Body() dto: AdjustInventoryDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.inventoryService.adjust(dto, user);
+    return this.inventoryService.adjust(
+      dto,
+      user,
+    );
   }
 }

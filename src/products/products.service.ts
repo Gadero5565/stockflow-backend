@@ -33,6 +33,7 @@ export class ProductsService {
       barcode,
       description: this.normalizeOptional(dto.description),
       unit: dto.unit?.trim() || 'unit',
+      reorderLevel: dto.reorderLevel ?? 0,
     });
 
     return this.productRepository.save(product);
@@ -72,7 +73,10 @@ export class ProductsService {
     return product;
   }
 
-  async update(id: string, dto: UpdateProductDto): Promise<Product> {
+  async update(
+    id: string,
+    dto: UpdateProductDto,
+  ): Promise<Product> {
     const product = await this.findEntityById(id);
 
     if (dto.sku !== undefined) {
@@ -96,11 +100,17 @@ export class ProductsService {
     }
 
     if (dto.description !== undefined) {
-      product.description = this.normalizeOptional(dto.description);
+      product.description = this.normalizeOptional(
+        dto.description,
+      );
     }
 
     if (dto.unit !== undefined) {
       product.unit = dto.unit.trim();
+    }
+
+    if (dto.reorderLevel !== undefined) {
+      product.reorderLevel = dto.reorderLevel;
     }
 
     if (dto.active !== undefined) {
@@ -144,7 +154,9 @@ export class ProductsService {
     });
 
     if (existing && existing.id !== excludedProductId) {
-      throw new ConflictException('A product with this SKU already exists');
+      throw new ConflictException(
+        'A product with this SKU already exists',
+      );
     }
   }
 
@@ -167,7 +179,9 @@ export class ProductsService {
     return value.trim().toUpperCase();
   }
 
-  private normalizeOptional(value?: string): string | null {
+  private normalizeOptional(
+    value?: string,
+  ): string | null {
     const normalized = value?.trim();
     return normalized ? normalized : null;
   }
